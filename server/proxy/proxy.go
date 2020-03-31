@@ -17,6 +17,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	plugin "github.com/fatedier/frp/models/plugin/server"
 	"io"
 	"net"
 	"strconv"
@@ -41,6 +42,7 @@ type Proxy interface {
 	GetConf() config.ProxyConf
 	GetWorkConnFromPool(src, dst net.Addr) (workConn net.Conn, err error)
 	GetUsedPortsNum() int
+	GetPluginManager() *plugin.Manager
 	Close()
 }
 
@@ -52,6 +54,7 @@ type BaseProxy struct {
 	poolCount     int
 	getWorkConnFn GetWorkConnFn
 	serverCfg     config.ServerCommonConf
+	pluginManager *plugin.Manager
 
 	mu  sync.RWMutex
 	xl  *xlog.Logger
@@ -68,6 +71,10 @@ func (pxy *BaseProxy) Context() context.Context {
 
 func (pxy *BaseProxy) GetUsedPortsNum() int {
 	return pxy.usedPortsNum
+}
+
+func (pxy *BaseProxy) GetPluginManager() *plugin.Manager {
+	return pxy.pluginManager
 }
 
 func (pxy *BaseProxy) Close() {
@@ -154,7 +161,7 @@ func (pxy *BaseProxy) startListenHandler(p Proxy, handler func(Proxy, net.Conn, 
 	}
 }
 
-func NewProxy(ctx context.Context, runId string, rc *controller.ResourceController, poolCount int,
+func NewProxy(ctx context.Context, runId string, pluginManager *plugin.Manager, rc *controller.ResourceController, poolCount int,
 	getWorkConnFn GetWorkConnFn, pxyConf config.ProxyConf, serverCfg config.ServerCommonConf) (pxy Proxy, err error) {
 
 	xl := xlog.FromContextSafe(ctx).Spawn().AppendPrefix(pxyConf.GetBaseInfo().ProxyName)
@@ -165,6 +172,7 @@ func NewProxy(ctx context.Context, runId string, rc *controller.ResourceControll
 		poolCount:     poolCount,
 		getWorkConnFn: getWorkConnFn,
 		serverCfg:     serverCfg,
+		pluginManager: pluginManager,
 		xl:            xl,
 		ctx:           xlog.NewContext(ctx, xl),
 	}
@@ -240,6 +248,11 @@ func HandleUserTcpConnection(pxy Proxy, userConn net.Conn, serverCfg config.Serv
 	}
 	xl.Debug("join connections, workConn(l[%s] r[%s]) userConn(l[%s] r[%s])", workConn.LocalAddr().String(),
 		workConn.RemoteAddr().String(), userConn.LocalAddr().String(), userConn.RemoteAddr().String())
+
+	pxy.GetPluginManager().TraceAccessIp(plugin.NewAccessIpContent{
+		ProxyName:      pxy.GetName(),
+		UserRemoteAddr: userConn.RemoteAddr().String(),
+	})
 
 	name := pxy.GetName()
 	proxyType := pxy.GetConf().GetBaseInfo().ProxyType

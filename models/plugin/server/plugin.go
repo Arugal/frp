@@ -21,8 +21,9 @@ import (
 const (
 	APIVersion = "0.1.0"
 
-	OpLogin    = "Login"
-	OpNewProxy = "NewProxy"
+	OpLogin       = "Login"
+	OpNewProxy    = "NewProxy"
+	OpNewAccessIp = "TraceAccessIp"
 )
 
 type Plugin interface {

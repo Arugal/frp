@@ -44,3 +44,8 @@ type NewProxyContent struct {
 	User UserInfo `json:"user"`
 	msg.NewProxy
 }
+
+type NewAccessIpContent struct {
+	ProxyName      string `json:"proxy_name"`
+	UserRemoteAddr string `json:"user_remote_addr"`
+}

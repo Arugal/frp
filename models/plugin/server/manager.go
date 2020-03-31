@@ -18,21 +18,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/fatedier/frp/utils/util"
 	"github.com/fatedier/frp/utils/xlog"
+	"strings"
+	"time"
 )
 
 type Manager struct {
-	loginPlugins    []Plugin
-	newProxyPlugins []Plugin
+	loginPlugins       []Plugin
+	newProxyPlugins    []Plugin
+	newAccessIpPlugins []Plugin
+	accessIpChan       chan NewAccessIpContent
+	accessIp           map[string]map[string]int
 }
 
 func NewManager() *Manager {
-	return &Manager{
-		loginPlugins:    make([]Plugin, 0),
-		newProxyPlugins: make([]Plugin, 0),
+	manager := &Manager{
+		loginPlugins:       make([]Plugin, 0),
+		newProxyPlugins:    make([]Plugin, 0),
+		newAccessIpPlugins: make([]Plugin, 0),
+		accessIpChan:       make(chan NewAccessIpContent, 1000),
+		accessIp:           make(map[string]map[string]int),
 	}
+	manager.doNotifyAccessIp()
+	return manager
 }
 
 func (m *Manager) Register(p Plugin) {
@@ -41,6 +50,9 @@ func (m *Manager) Register(p Plugin) {
 	}
 	if p.IsSupport(OpNewProxy) {
 		m.newProxyPlugins = append(m.newProxyPlugins, p)
+	}
+	if p.IsSupport(OpNewAccessIp) {
+		m.newAccessIpPlugins = append(m.newAccessIpPlugins, p)
 	}
 }
 
@@ -102,4 +114,35 @@ func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
 		}
 	}
 	return content, nil
+}
+
+func (m *Manager) TraceAccessIp(context NewAccessIpContent) {
+	m.accessIpChan <- context
+}
+
+func (m *Manager) doNotifyAccessIp() {
+	go func() {
+		ticker := time.NewTicker(time.Hour * 24)
+		for {
+			select {
+			case accessIp := <-m.accessIpChan:
+				ipMap, ok := m.accessIp[accessIp.ProxyName]
+				if !ok {
+					ipMap = make(map[string]int)
+					m.accessIp[accessIp.ProxyName] = ipMap
+				}
+				ipAndPort := strings.Split(accessIp.UserRemoteAddr, ":")
+				if _, ok := ipMap[ipAndPort[0]]; !ok {
+					ipMap[ipAndPort[0]] = 0
+					accessIp.UserRemoteAddr = ipAndPort[0]
+
+					for _, p := range m.newAccessIpPlugins {
+						_, _, _ = p.Handle(context.Background(), OpNewAccessIp, accessIp)
+					}
+				}
+			case <-ticker.C:
+				m.accessIp = make(map[string]map[string]int)
+			}
+		}
+	}()
 }
