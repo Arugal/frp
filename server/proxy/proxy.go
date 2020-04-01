@@ -249,10 +249,7 @@ func HandleUserTcpConnection(pxy Proxy, userConn net.Conn, serverCfg config.Serv
 	xl.Debug("join connections, workConn(l[%s] r[%s]) userConn(l[%s] r[%s])", workConn.LocalAddr().String(),
 		workConn.RemoteAddr().String(), userConn.LocalAddr().String(), userConn.RemoteAddr().String())
 
-	pxy.GetPluginManager().TraceAccessIp(plugin.NewAccessIpContent{
-		ProxyName:      pxy.GetName(),
-		UserRemoteAddr: userConn.RemoteAddr().String(),
-	})
+	pxy.GetPluginManager().TraceAccessIp(pxy.GetName(), userConn.RemoteAddr().String())
 
 	name := pxy.GetName()
 	proxyType := pxy.GetConf().GetBaseInfo().ProxyType

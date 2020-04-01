@@ -25,20 +25,24 @@ import (
 )
 
 type Manager struct {
-	loginPlugins       []Plugin
-	newProxyPlugins    []Plugin
-	newAccessIpPlugins []Plugin
-	accessIpChan       chan NewAccessIpContent
-	accessIp           map[string]map[string]int
+	enableLogin         bool
+	loginPlugins        []Plugin
+	enableNewProxy      bool
+	newProxyPlugins     []Plugin
+	enableTraceAccessIp bool
+	newAccessIpPlugins  []Plugin
+	accessIpChan        chan NewAccessIpContent
+	accessIp            map[string]map[string]int
 }
 
 func NewManager() *Manager {
 	manager := &Manager{
-		loginPlugins:       make([]Plugin, 0),
-		newProxyPlugins:    make([]Plugin, 0),
-		newAccessIpPlugins: make([]Plugin, 0),
-		accessIpChan:       make(chan NewAccessIpContent, 1000),
-		accessIp:           make(map[string]map[string]int),
+		loginPlugins:        make([]Plugin, 0),
+		newProxyPlugins:     make([]Plugin, 0),
+		newAccessIpPlugins:  make([]Plugin, 0),
+		enableTraceAccessIp: false,
+		accessIpChan:        make(chan NewAccessIpContent, 1000),
+		accessIp:            make(map[string]map[string]int),
 	}
 	manager.doNotifyAccessIp()
 	return manager
@@ -47,16 +51,22 @@ func NewManager() *Manager {
 func (m *Manager) Register(p Plugin) {
 	if p.IsSupport(OpLogin) {
 		m.loginPlugins = append(m.loginPlugins, p)
+		m.enableLogin = true
 	}
 	if p.IsSupport(OpNewProxy) {
 		m.newProxyPlugins = append(m.newProxyPlugins, p)
+		m.enableNewProxy = true
 	}
 	if p.IsSupport(OpNewAccessIp) {
 		m.newAccessIpPlugins = append(m.newAccessIpPlugins, p)
+		m.enableTraceAccessIp = true
 	}
 }
 
 func (m *Manager) Login(content *LoginContent) (*LoginContent, error) {
+	if !m.enableLogin {
+		return content, nil
+	}
 	var (
 		res = &Response{
 			Reject:   false,
@@ -87,6 +97,9 @@ func (m *Manager) Login(content *LoginContent) (*LoginContent, error) {
 }
 
 func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
+	if !m.enableNewProxy {
+		return content, nil
+	}
 	var (
 		res = &Response{
 			Reject:   false,
@@ -116,8 +129,15 @@ func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
 	return content, nil
 }
 
-func (m *Manager) TraceAccessIp(context NewAccessIpContent) {
-	m.accessIpChan <- context
+func (m *Manager) TraceAccessIp(pxyName string, userRemoteAddr string) {
+	if !m.enableTraceAccessIp {
+		return
+	}
+
+	m.accessIpChan <- NewAccessIpContent{
+		ProxyName:    pxyName,
+		UserRemoteIp: strings.Split(userRemoteAddr, ":")[0],
+	}
 }
 
 func (m *Manager) doNotifyAccessIp() {
@@ -126,19 +146,19 @@ func (m *Manager) doNotifyAccessIp() {
 		for {
 			select {
 			case accessIp := <-m.accessIpChan:
-				ipMap, ok := m.accessIp[accessIp.ProxyName]
+				accessIpMap, ok := m.accessIp[accessIp.ProxyName]
 				if !ok {
-					ipMap = make(map[string]int)
-					m.accessIp[accessIp.ProxyName] = ipMap
+					accessIpMap = make(map[string]int)
+					m.accessIp[accessIp.ProxyName] = accessIpMap
 				}
-				ipAndPort := strings.Split(accessIp.UserRemoteAddr, ":")
-				if _, ok := ipMap[ipAndPort[0]]; !ok {
-					ipMap[ipAndPort[0]] = 0
-					accessIp.UserRemoteAddr = ipAndPort[0]
+				if _, ok := accessIpMap[accessIp.UserRemoteIp]; !ok {
+					accessIpMap[accessIp.UserRemoteIp] = 1
 
 					for _, p := range m.newAccessIpPlugins {
 						_, _, _ = p.Handle(context.Background(), OpNewAccessIp, accessIp)
 					}
+				} else {
+					accessIpMap[accessIp.UserRemoteIp] = accessIpMap[accessIp.UserRemoteIp] + 1
 				}
 			case <-ticker.C:
 				m.accessIp = make(map[string]map[string]int)

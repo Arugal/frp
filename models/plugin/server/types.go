@@ -46,6 +46,6 @@ type NewProxyContent struct {
 }
 
 type NewAccessIpContent struct {
-	ProxyName      string `json:"proxy_name"`
-	UserRemoteAddr string `json:"user_remote_addr"`
+	ProxyName    string `json:"proxy_name"`
+	UserRemoteIp string `json:"user_remote_ip"`
 }
