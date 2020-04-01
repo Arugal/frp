@@ -25,24 +25,20 @@ import (
 )
 
 type Manager struct {
-	enableLogin         bool
-	loginPlugins        []Plugin
-	enableNewProxy      bool
-	newProxyPlugins     []Plugin
-	enableTraceAccessIp bool
-	newAccessIpPlugins  []Plugin
-	accessIpChan        chan NewAccessIpContent
-	accessIp            map[string]map[string]int
+	loginPlugins       []Plugin
+	newProxyPlugins    []Plugin
+	newAccessIpPlugins []Plugin
+	accessIpChan       chan NewAccessIpContent
+	accessIp           map[string]map[string]int
 }
 
 func NewManager() *Manager {
 	manager := &Manager{
-		loginPlugins:        make([]Plugin, 0),
-		newProxyPlugins:     make([]Plugin, 0),
-		newAccessIpPlugins:  make([]Plugin, 0),
-		enableTraceAccessIp: false,
-		accessIpChan:        make(chan NewAccessIpContent, 1000),
-		accessIp:            make(map[string]map[string]int),
+		loginPlugins:       make([]Plugin, 0),
+		newProxyPlugins:    make([]Plugin, 0),
+		newAccessIpPlugins: make([]Plugin, 0),
+		accessIpChan:       make(chan NewAccessIpContent, 1000),
+		accessIp:           make(map[string]map[string]int),
 	}
 	manager.doNotifyAccessIp()
 	return manager
@@ -51,20 +47,17 @@ func NewManager() *Manager {
 func (m *Manager) Register(p Plugin) {
 	if p.IsSupport(OpLogin) {
 		m.loginPlugins = append(m.loginPlugins, p)
-		m.enableLogin = true
 	}
 	if p.IsSupport(OpNewProxy) {
 		m.newProxyPlugins = append(m.newProxyPlugins, p)
-		m.enableNewProxy = true
 	}
 	if p.IsSupport(OpNewAccessIp) {
 		m.newAccessIpPlugins = append(m.newAccessIpPlugins, p)
-		m.enableTraceAccessIp = true
 	}
 }
 
 func (m *Manager) Login(content *LoginContent) (*LoginContent, error) {
-	if !m.enableLogin {
+	if len(m.loginPlugins) == 0 {
 		return content, nil
 	}
 	var (
@@ -97,7 +90,7 @@ func (m *Manager) Login(content *LoginContent) (*LoginContent, error) {
 }
 
 func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
-	if !m.enableNewProxy {
+	if len(m.newProxyPlugins) == 0 {
 		return content, nil
 	}
 	var (
@@ -130,7 +123,7 @@ func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
 }
 
 func (m *Manager) TraceAccessIp(pxyName string, userRemoteAddr string) {
-	if !m.enableTraceAccessIp {
+	if len(m.newAccessIpPlugins) == 0 {
 		return
 	}
 
