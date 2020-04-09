@@ -20,28 +20,25 @@ import (
 	"fmt"
 	"github.com/fatedier/frp/utils/util"
 	"github.com/fatedier/frp/utils/xlog"
-	"strings"
+	"sync"
 	"time"
 )
 
 type Manager struct {
 	loginPlugins       []Plugin
 	newProxyPlugins    []Plugin
-	newAccessIpPlugins []Plugin
-	accessIpChan       chan NewAccessIpContent
-	accessIp           map[string]map[string]int
+	newUserConnPlugins []Plugin
+	newUserConnChan    chan *NewUserConn
+	newUserConnCache   map[string]map[string]bool
+	initNewUserConn    sync.Once
 }
 
 func NewManager() *Manager {
-	manager := &Manager{
+	return &Manager{
 		loginPlugins:       make([]Plugin, 0),
 		newProxyPlugins:    make([]Plugin, 0),
-		newAccessIpPlugins: make([]Plugin, 0),
-		accessIpChan:       make(chan NewAccessIpContent, 1000),
-		accessIp:           make(map[string]map[string]int),
+		newUserConnPlugins: make([]Plugin, 0),
 	}
-	manager.doNotifyAccessIp()
-	return manager
 }
 
 func (m *Manager) Register(p Plugin) {
@@ -51,8 +48,13 @@ func (m *Manager) Register(p Plugin) {
 	if p.IsSupport(OpNewProxy) {
 		m.newProxyPlugins = append(m.newProxyPlugins, p)
 	}
-	if p.IsSupport(OpNewAccessIp) {
-		m.newAccessIpPlugins = append(m.newAccessIpPlugins, p)
+	if p.IsSupport(OpNewUserConn) {
+		m.newUserConnPlugins = append(m.newUserConnPlugins, p)
+		m.initNewUserConn.Do(func() {
+			m.newUserConnChan = make(chan *NewUserConn, 1000)
+			m.newUserConnCache = make(map[string]map[string]bool)
+			m.doNotifyNewUserConn()
+		})
 	}
 }
 
@@ -122,39 +124,46 @@ func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
 	return content, nil
 }
 
-func (m *Manager) TraceAccessIp(pxyName string, userRemoteAddr string) {
-	if len(m.newAccessIpPlugins) == 0 {
+func (m *Manager) NewUserConn(userConn *NewUserConn) {
+	if len(m.newUserConnPlugins) == 0 {
 		return
 	}
 
-	m.accessIpChan <- NewAccessIpContent{
-		ProxyName:    pxyName,
-		UserRemoteIp: strings.Split(userRemoteAddr, ":")[0],
+	select {
+	case m.newUserConnChan <- userConn:
+	default:
+		xl := xlog.New()
+		xl.Warn("reach max send buffer")
 	}
 }
 
-func (m *Manager) doNotifyAccessIp() {
+func (m *Manager) doNotifyNewUserConn() {
+	xl := xlog.New().AppendPrefix("NewUserConn")
 	go func() {
-		ticker := time.NewTicker(time.Hour * 24)
+		clearTicker := time.NewTicker(time.Hour * 24)
 		for {
 			select {
-			case accessIp := <-m.accessIpChan:
-				accessIpMap, ok := m.accessIp[accessIp.ProxyName]
+			case userConn := <-m.newUserConnChan:
+				xl.Debug("received NewUserConn [%s:%s %s]", userConn.ProxyName, userConn.ProxyType, userConn.RemoteIp)
+				userConnMap, ok := m.newUserConnCache[userConn.ProxyName]
 				if !ok {
-					accessIpMap = make(map[string]int)
-					m.accessIp[accessIp.ProxyName] = accessIpMap
+					userConnMap = make(map[string]bool)
 				}
-				if _, ok := accessIpMap[accessIp.UserRemoteIp]; !ok {
-					accessIpMap[accessIp.UserRemoteIp] = 1
-
-					for _, p := range m.newAccessIpPlugins {
-						_, _, _ = p.Handle(context.Background(), OpNewAccessIp, accessIp)
+				if _, ok := userConnMap[userConn.RemoteIp]; !ok {
+					// Notifies the IP of the first access proxy
+					userConnMap[userConn.RemoteIp] = false
+					for _, p := range m.newUserConnPlugins {
+						_, _, err := p.Handle(context.Background(), OpNewUserConn, userConn)
+						if err != nil {
+							xl.Warn("send NewUserConn [%s:%s %s] request to plugin [%s] error: %v",
+								userConn.ProxyName, userConn.ProxyType, userConn.RemoteIp, p.Name(), err)
+						}
 					}
-				} else {
-					accessIpMap[accessIp.UserRemoteIp] = accessIpMap[accessIp.UserRemoteIp] + 1
 				}
-			case <-ticker.C:
-				m.accessIp = make(map[string]map[string]int)
+			case <-clearTicker.C:
+				// clear the IP record cache
+				xl.Debug("clear NewUserConn cache")
+				m.newUserConnCache = make(map[string]map[string]bool)
 			}
 		}
 	}()

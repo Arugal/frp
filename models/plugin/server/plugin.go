@@ -23,7 +23,7 @@ const (
 
 	OpLogin       = "Login"
 	OpNewProxy    = "NewProxy"
-	OpNewAccessIp = "TraceAccessIp"
+	OpNewUserConn = "NewUserConn"
 )
 
 type Plugin interface {

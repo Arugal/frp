@@ -16,6 +16,8 @@ package plugin
 
 import (
 	"github.com/fatedier/frp/models/msg"
+	"net"
+	"strings"
 )
 
 type Request struct {
@@ -45,7 +47,16 @@ type NewProxyContent struct {
 	msg.NewProxy
 }
 
-type NewAccessIpContent struct {
-	ProxyName    string `json:"proxy_name"`
-	UserRemoteIp string `json:"user_remote_ip"`
+type NewUserConn struct {
+	ProxyName string `json:"proxy_name"`
+	ProxyType string `json:"proxy_type"`
+	RemoteIp  string `json:"remote_addr"`
+}
+
+func CreateNewUserConn(proxyName string, proxyType string, remoteAddr net.Addr) *NewUserConn {
+	return &NewUserConn{
+		ProxyName: proxyName,
+		ProxyType: proxyType,
+		RemoteIp:  strings.Split(remoteAddr.String(), ":")[0],
+	}
 }
